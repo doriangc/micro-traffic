@@ -12,6 +12,8 @@ const sapp = sokol.app;
 const sglue = sokol.glue;
 const sdtx = sokol.debugtext;
 const sshape = sokol.shape;
+const zigimg = @import("zigimg");
+
 const vec3 = @import("math.zig").Vec3;
 const mat4 = @import("math.zig").Mat4;
 const assert = @import("std").debug.assert;
@@ -41,6 +43,7 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var pip: sg.Pipeline = .{};
     var bind: sg.Bindings = .{};
+    var file_buffer: [256 * 1024]u8 = undefined;
     var rx: f32 = 0.0;
     var ry: f32 = 0.0;
     const view = mat4.lookat(.{ .x = 0.0, .y = 1.5, .z = 6.0 }, vec3.zero(), vec3.up());
@@ -54,13 +57,20 @@ export fn init() void {
         .logger = .{ .func = slog.func },
     });
 
+    sfetch.setup(.{
+        .max_requests = 1,
+        .num_channels = 1,
+        .num_lanes = 1,
+        .logger = .{ .func = slog.func },
+    });
+
     state.bind.vertex_buffers[0] = sg.makeBuffer(.{
         .data = sg.asRange(&[_]f32{
-            // positions      colors
-            -0.5, 0.5,  0.5, 1.0, 0.0, 0.0, 1.0,
-            0.5,  0.5,  0.5, 0.0, 1.0, 0.0, 1.0,
-            0.5,  -0.5, 0.5, 0.0, 0.0, 1.0, 1.0,
-            -0.5, -0.5, 0.5, 1.0, 1.0, 0.0, 1.0,
+            // positions,     uv
+            -0.5, 0.5,  0.5, 0.0, 0.0,
+            0.5,  0.5,  0.5, 1.0, 0.0,
+            0.5,  -0.5, 0.5, 1.0, 1.0,
+            -0.5, -0.5, 0.5, 0.0, 1.0,
         }),
     });
 
@@ -70,7 +80,9 @@ export fn init() void {
         .data = sg.asRange(&[_]u16{ 0, 1, 2, 0, 2, 3 }),
     });
 
-    // state.bind.views
+    state.bind.views[shd.VIEW_tex] = sg.allocView();
+
+    state.bind.samplers[shd.SMP_smp] = sg.makeSampler(.{});
 
     var sdtx_desc: sdtx.Desc = .{
         .logger = .{ .func = slog.func },
@@ -84,7 +96,7 @@ export fn init() void {
         .layout = init: {
             var l = sg.VertexLayoutState{};
             l.attrs[shd.ATTR_quad_position].format = .FLOAT3;
-            l.attrs[shd.ATTR_quad_color0].format = .FLOAT4;
+            l.attrs[shd.ATTR_quad_texcoord0].format = .FLOAT2;
             break :init l;
         },
         .index_type = .UINT16,
@@ -95,9 +107,16 @@ export fn init() void {
         .load_action = .CLEAR,
         .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
     };
+
+    _ = sfetch.send(.{
+        .path = "assets/car.png", // native: relative to cwd; web: relative URL
+        .callback = fetchCallback,
+        .buffer = sfetch.asRange(&state.file_buffer),
+    });
 }
 
 export fn frame() void {
+    sfetch.dowork();
     // help text
     sdtx.canvas(sapp.widthf() * 0.5, sapp.heightf() * 0.5);
 
@@ -146,6 +165,51 @@ fn worker(shared: *Shared, io: std.Io) void {
     // heavy computation, no sokol/GL calls in here
     shared.result.store(1, .release);
     shared.done.store(true, .release);
+}
+
+fn fetchCallback(response: [*c]const sfetch.Response) callconv(.c) void {
+    if (response.*.fetched) {
+        const bytes: [*]const u8 = @ptrCast(response.*.data.ptr);
+        const png = bytes[0..response.*.data.size];
+
+        var rs = zigimg.io.ReadStream.initMemory(png);
+
+        const decoded_img = zigimg.formats.png.load(
+            &rs,
+            std.heap.c_allocator,
+            zigimg.formats.png.ReaderOptions.init(std.heap.c_allocator),
+        ) catch |err| {
+            std.log.err("decoding png failed: {}", .{err});
+            return;
+        };
+
+        var data: sg.ImageData = .{};
+        data.mip_levels[0] = sg.asRange(decoded_img.rawBytes());
+
+        const img = sg.makeImage(.{
+            .width = @intCast(decoded_img.width),
+            .height = @intCast(decoded_img.height),
+            .pixel_format = .RGBA8,
+            .data = data,
+        });
+
+        sg.initView(
+            state.bind.views[shd.VIEW_tex],
+            .{ .texture = .{ .image = img } },
+        );
+    } else if (response.*.failed) {
+        // response.*.error_code tells you why (FILE_NOT_FOUND, BUFFER_TOO_SMALL, ...)
+        switch (response.*.error_code) {
+            .BUFFER_TOO_SMALL => std.log.err("Buffer too small", .{}),
+            .CANCELLED => std.log.err("Cancelled", .{}),
+            .FILE_NOT_FOUND => std.log.err("File not found", .{}),
+            .INVALID_HTTP_STATUS => std.log.err("Invalid HTTP status", .{}),
+            .JS_OTHER => std.log.err("JS Other Error", .{}),
+            .NO_BUFFER => std.log.err("No Buffer", .{}),
+            .NO_ERROR => std.log.err("Failed without error", .{}),
+            .UNEXPECTED_EOF => std.log.err("Unexpected EOF", .{}),
+        }
+    }
 }
 
 pub fn main(proc_init: std.process.Init) void {

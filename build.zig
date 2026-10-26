@@ -23,7 +23,13 @@ pub fn build(b: *std.Build) !void {
     });
     const emsdk = sokol.builder.dependency("emsdk", .{});
 
+    const zigimg = b.dependency("zigimg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     exe_mod.addImport("sokol", sokol.module("sokol"));
+    exe_mod.addImport("zigimg", zigimg.module("zigimg"));
 
     // Declared up front so both branches can use it
     const run_step = b.step("run", "Run the app");
