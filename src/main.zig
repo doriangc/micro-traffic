@@ -161,6 +161,7 @@ export fn frame() void {
     }
     sdtx.pos(0.5, 5.5);
     sdtx.print("fps: {d:.0}\n", .{state.fps});
+    sdtx.print("backend: {s}\n", .{@tagName(sg.queryBackend())});
 
     if (state.shared.done.load(.acquire)) {
         const result = state.shared.result.load(.acquire);
@@ -213,30 +214,35 @@ export fn cleanup() void {
 }
 
 fn worker(shared: *Shared, io: std.Io) void {
-    io.sleep(.fromSeconds(1), .awake) catch {};
+    io.sleep(.fromSeconds(10), .awake) catch {};
 
     // heavy computation, no sokol/GL calls in here
-    shared.result.store(150, .release);
+    shared.result.store(1, .release);
     shared.done.store(true, .release);
 }
 
 pub fn main(proc_init: std.process.Init) void {
     const io = proc_init.io;
+    _ = io;
 
-    const t = std.Thread.spawn(.{ .stack_size = 256 * 1024 }, worker, .{ &state.shared, io }) catch |err| {
-        std.log.err("thread spawn failed: {}", .{err});
-        return;
-    };
-    t.detach();
+    // const t = std.Thread.spawn(.{}, worker, .{ &state.shared, io }) catch |err| {
+    //     std.log.err("thread spawn failed: {}", .{err});
+    //     return;
+    // };
+    // t.detach();
 
     sapp.run(.{
         .init_cb = init,
         .frame_cb = frame,
         .event_cb = input,
         .cleanup_cb = cleanup,
-        .width = 800,
-        .height = 600,
+        .width = 1920,
+        .height = 1080,
         .high_dpi = true,
+        .html5 = .{
+            // .canvas_resize = true,
+            .update_document_title = true,
+        },
         .sample_count = 4,
         .icon = .{ .sokol_default = true },
         .window_title = "shapes.zig",

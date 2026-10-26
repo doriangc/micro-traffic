@@ -67,7 +67,7 @@ pub fn build(b: *std.Build) !void {
             .use_webgl2 = !use_webgpu,
             .use_emmalloc = false,
             .use_filesystem = true,
-            .shell_file_path = sokol.path("src/sokol/web/shell.html"),
+            .shell_file_path = b.path("src/sokol/web/shell.html"),
             .extra_args = &.{
                 "-sSTACK_SIZE=512KB",
                 "-pthread",
