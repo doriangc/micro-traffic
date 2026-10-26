@@ -105,64 +105,15 @@ pub const Mat4 = extern struct {
         return res;
     }
 
-    pub fn persp(fov: f32, aspect: f32, near: f32, far: f32) Mat4 {
-        var res = Mat4.identity();
-        const t = math.tan(fov * (math.pi / 360.0));
-        res.m[0][0] = 1.0 / t;
-        res.m[1][1] = aspect / t;
-        res.m[2][3] = -1.0;
-        res.m[2][2] = (near + far) / (near - far);
-        res.m[3][2] = (2.0 * near * far) / (near - far);
-        res.m[3][3] = 0.0;
-        return res;
-    }
-
-    pub fn lookat(eye: Vec3, center: Vec3, up: Vec3) Mat4 {
-        var res = Mat4.zero();
-
-        const f = Vec3.norm(Vec3.sub(center, eye));
-        const s = Vec3.norm(Vec3.cross(f, up));
-        const u = Vec3.cross(s, f);
-
-        res.m[0][0] = s.x;
-        res.m[0][1] = u.x;
-        res.m[0][2] = -f.x;
-
-        res.m[1][0] = s.y;
-        res.m[1][1] = u.y;
-        res.m[1][2] = -f.y;
-
-        res.m[2][0] = s.z;
-        res.m[2][1] = u.z;
-        res.m[2][2] = -f.z;
-
-        res.m[3][0] = -Vec3.dot(s, eye);
-        res.m[3][1] = -Vec3.dot(u, eye);
-        res.m[3][2] = Vec3.dot(f, eye);
-        res.m[3][3] = 1.0;
-
-        return res;
-    }
-
-    pub fn rotate(angle: f32, axis_unorm: Vec3) Mat4 {
-        var res = Mat4.identity();
-
-        const axis = Vec3.norm(axis_unorm);
-        const sin_theta = math.sin(radians(angle));
-        const cos_theta = math.cos(radians(angle));
-        const cos_value = 1.0 - cos_theta;
-
-        res.m[0][0] = (axis.x * axis.x * cos_value) + cos_theta;
-        res.m[0][1] = (axis.x * axis.y * cos_value) + (axis.z * sin_theta);
-        res.m[0][2] = (axis.x * axis.z * cos_value) - (axis.y * sin_theta);
-        res.m[1][0] = (axis.y * axis.x * cos_value) - (axis.z * sin_theta);
-        res.m[1][1] = (axis.y * axis.y * cos_value) + cos_theta;
-        res.m[1][2] = (axis.y * axis.z * cos_value) + (axis.x * sin_theta);
-        res.m[2][0] = (axis.z * axis.x * cos_value) + (axis.y * sin_theta);
-        res.m[2][1] = (axis.z * axis.y * cos_value) - (axis.x * sin_theta);
-        res.m[2][2] = (axis.z * axis.z * cos_value) + cos_theta;
-
-        return res;
+    pub fn ortho(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) Mat4 {
+        var m = Mat4.identity();
+        m.m[0][0] = 2.0 / (r - l);
+        m.m[1][1] = 2.0 / (t - b);
+        m.m[2][2] = -2.0 / (f - n);
+        m.m[3][0] = -(r + l) / (r - l); // x translation
+        m.m[3][1] = -(t + b) / (t - b); // y translation
+        m.m[3][2] = -(f + n) / (f - n); // z translation
+        return m;
     }
 
     pub fn translate(translation: Vec3) Mat4 {

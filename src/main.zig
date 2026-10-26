@@ -6,6 +6,7 @@
 const std = @import("std");
 const sokol = @import("sokol");
 const slog = sokol.log;
+const sfetch = sokol.fetch;
 const sg = sokol.gfx;
 const sapp = sokol.app;
 const sglue = sokol.glue;
@@ -14,7 +15,7 @@ const sshape = sokol.shape;
 const vec3 = @import("math.zig").Vec3;
 const mat4 = @import("math.zig").Mat4;
 const assert = @import("std").debug.assert;
-const shd = @import("shaders/shapes.glsl.zig");
+const shd = @import("shaders/quad.glsl.zig");
 
 pub const panic = std.debug.FullPanic(wasmPanic);
 
@@ -40,14 +41,6 @@ const state = struct {
     var pass_action: sg.PassAction = .{};
     var pip: sg.Pipeline = .{};
     var bind: sg.Bindings = .{};
-    var vs_params: shd.VsParams = undefined;
-    var shapes: [NUM_SHAPES]Shape = .{
-        .{ .pos = .{ .x = -1, .y = 1, .z = 0 } },
-        .{ .pos = .{ .x = 1, .y = 1, .z = 0 } },
-        .{ .pos = .{ .x = -2, .y = -1, .z = 0 } },
-        .{ .pos = .{ .x = 2, .y = -1, .z = 0 } },
-        .{ .pos = .{ .x = 0, .y = -1, .z = 0 } },
-    };
     var rx: f32 = 0.0;
     var ry: f32 = 0.0;
     const view = mat4.lookat(.{ .x = 0.0, .y = 1.5, .z = 6.0 }, vec3.zero(), vec3.up());
@@ -61,105 +54,59 @@ export fn init() void {
         .logger = .{ .func = slog.func },
     });
 
+    state.bind.vertex_buffers[0] = sg.makeBuffer(.{
+        .data = sg.asRange(&[_]f32{
+            // positions      colors
+            -0.5, 0.5,  0.5, 1.0, 0.0, 0.0, 1.0,
+            0.5,  0.5,  0.5, 0.0, 1.0, 0.0, 1.0,
+            0.5,  -0.5, 0.5, 0.0, 0.0, 1.0, 1.0,
+            -0.5, -0.5, 0.5, 1.0, 1.0, 0.0, 1.0,
+        }),
+    });
+
+    // an index buffer
+    state.bind.index_buffer = sg.makeBuffer(.{
+        .usage = .{ .index_buffer = true },
+        .data = sg.asRange(&[_]u16{ 0, 1, 2, 0, 2, 3 }),
+    });
+
+    // state.bind.views
+
     var sdtx_desc: sdtx.Desc = .{
         .logger = .{ .func = slog.func },
     };
     sdtx_desc.fonts[0] = sdtx.fontOric();
     sdtx.setup(sdtx_desc);
 
-    // pass-action for clearing to black
+    // a shader and pipeline state object
+    state.pip = sg.makePipeline(.{
+        .shader = sg.makeShader(shd.quadShaderDesc(sg.queryBackend())),
+        .layout = init: {
+            var l = sg.VertexLayoutState{};
+            l.attrs[shd.ATTR_quad_position].format = .FLOAT3;
+            l.attrs[shd.ATTR_quad_color0].format = .FLOAT4;
+            break :init l;
+        },
+        .index_type = .UINT16,
+    });
+
+    // clear to black
     state.pass_action.colors[0] = .{
         .load_action = .CLEAR,
         .clear_value = .{ .r = 0, .g = 0, .b = 0, .a = 1 },
     };
-
-    // generate shape geometries
-    var vertices: [sshape.max_vertex_size * 6 * 1024]u8 = undefined;
-    var indices: [16 * 1024]u16 = undefined;
-    var shp: sshape.State = .{
-        .vertices = .{ .buffer = sshape.asRange(&vertices) },
-        .indices = .{ .buffer = sshape.asRange(&indices) },
-    };
-    sshape.buildBox(&shp, .{
-        .width = 1.0,
-        .height = 1.0,
-        .depth = 1.0,
-        .tiles = 10,
-        .random_colors = true,
-    });
-    state.shapes[0].draw = sshape.elementRange(shp);
-    sshape.buildPlane(&shp, .{
-        .width = 1.0,
-        .depth = 1.0,
-        .tiles = 10,
-        .random_colors = true,
-    });
-    state.shapes[1].draw = sshape.elementRange(shp);
-    sshape.buildSphere(&shp, .{
-        .radius = 0.75,
-        .slices = 36,
-        .stacks = 20,
-        .random_colors = true,
-    });
-    state.shapes[2].draw = sshape.elementRange(shp);
-    sshape.buildCylinder(&shp, .{
-        .radius = 0.5,
-        .height = 1.5,
-        .slices = 36,
-        .stacks = 10,
-        .random_colors = true,
-    });
-    state.shapes[3].draw = sshape.elementRange(shp);
-    sshape.buildTorus(&shp, .{
-        .radius = 0.5,
-        .ring_radius = 0.3,
-        .rings = 36,
-        .sides = 18,
-        .random_colors = true,
-    });
-    state.shapes[4].draw = sshape.elementRange(shp);
-    assert(shp.valid);
-
-    // one vertex- and index-buffer for all shapes
-    state.bind.vertex_buffers[0] = sg.makeBuffer(sshape.vertexBufferDesc(shp));
-    state.bind.index_buffer = sg.makeBuffer(sshape.indexBufferDesc(shp));
-
-    // shader- and pipeline-object
-    state.pip = sg.makePipeline(.{
-        .shader = sg.makeShader(shd.shapesShaderDesc(sg.queryBackend())),
-        .layout = init: {
-            var l = sg.VertexLayoutState{};
-            l.buffers[0] = sshape.vertexBufferLayoutState(shp);
-            l.attrs[shd.ATTR_shapes_position] = sshape.positionVertexAttrState(shp);
-            l.attrs[shd.ATTR_shapes_normal] = sshape.normalVertexAttrState(shp);
-            l.attrs[shd.ATTR_shapes_texcoord] = sshape.texcoordVertexAttrState(shp);
-            l.attrs[shd.ATTR_shapes_color0] = sshape.colorVertexAttrState(shp);
-            break :init l;
-        },
-        .index_type = .UINT16,
-        .cull_mode = .NONE,
-        .depth = .{
-            .compare = .LESS_EQUAL,
-            .write_enabled = true,
-        },
-    });
 }
 
 export fn frame() void {
     // help text
     sdtx.canvas(sapp.widthf() * 0.5, sapp.heightf() * 0.5);
-    sdtx.pos(0.5, 0.5);
-    sdtx.puts("press keys to switch draw mode:\n\n");
-    sdtx.puts("  1: vertex normals\n");
-    sdtx.puts("  2: texture coords\n");
-    sdtx.puts("  3: vertex colors\n");
 
     const frame_time = sapp.frameDuration();
     if (frame_time > 0.0) {
         const inst_fps = 1.0 / frame_time;
         state.fps = if (state.fps == 0.0) inst_fps else state.fps * 0.95 + inst_fps * 0.05;
     }
-    sdtx.pos(0.5, 5.5);
+    sdtx.pos(0.5, 0.5);
     sdtx.print("fps: {d:.0}\n", .{state.fps});
     sdtx.print("backend: {s}\n", .{@tagName(sg.queryBackend())});
 
@@ -168,44 +115,24 @@ export fn frame() void {
         sdtx.print("result: {d}\n", .{result});
     }
 
-    // view-project matrix
-    const proj = mat4.persp(60.0, sapp.widthf() / sapp.heightf(), 0.01, 10.0);
-    const view_proj = mat4.mul(proj, state.view);
+    const world_height: f32 = 10.0; // units visible vertically
+    const aspect = sapp.widthf() / sapp.heightf();
+    const half_h = world_height * 0.5;
+    const half_w = half_h * aspect;
+    const proj = mat4.ortho(-half_w, half_w, -half_h, half_h, -1.0, 1.0);
 
-    // model-rotation matrix
-    const dt: f32 = @floatCast(sapp.frameDuration() * 60);
-    state.rx += 1.0 * dt;
-    state.ry += 1.0 * dt;
-    const rxm = mat4.rotate(state.rx, .{ .x = 1, .y = 0, .z = 0 });
-    const rym = mat4.rotate(state.ry, .{ .x = 0, .y = 1, .z = 0 });
-    const rm = mat4.mul(rxm, rym);
-
-    // render shapes...
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
     sg.applyBindings(state.bind);
-    for (state.shapes) |shape| {
-        // per-shape model-view-projection matrix
-        const model = mat4.mul(mat4.translate(shape.pos), rm);
-        state.vs_params.mvp = mat4.mul(view_proj, model);
-        sg.applyUniforms(shd.UB_vs_params, sg.asRange(&state.vs_params));
-        sg.draw(shape.draw.base_element, shape.draw.num_elements, 1);
-    }
+    sg.applyUniforms(shd.UB_vs_params, sg.asRange(&shd.VsParams{ .mvp = proj }));
+    sg.draw(0, 6, 1);
     sdtx.draw();
     sg.endPass();
     sg.commit();
 }
 
 export fn input(event: ?*const sapp.Event) void {
-    const ev = event.?;
-    if (ev.type == .KEY_DOWN) {
-        state.vs_params.draw_mode = switch (ev.key_code) {
-            ._1 => 0.0,
-            ._2 => 1.0,
-            ._3 => 2.0,
-            else => state.vs_params.draw_mode,
-        };
-    }
+    _ = event;
 }
 
 export fn cleanup() void {
