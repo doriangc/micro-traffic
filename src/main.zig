@@ -183,23 +183,7 @@ export fn frame() void {
     }
 
     const dt: f32 = @floatCast(@min(sapp.frameDuration(), 0.1));
-    camera.updateKeyboardPan(dt);
-    camera.updateMomentum(dt);
-    const pred = camera.predictionOffset(dt);
-
-    const cam_offset = camera.getCamOffset();
-
-    const h = camera.halfExtents();
-    const cx = cam_offset.x + pred.x; // render camera = true camera + prediction
-    const cy = cam_offset.y + pred.y;
-    const proj = Mat4.ortho(
-        cx - h.x,
-        cx + h.x,
-        cy - h.y,
-        cy + h.y,
-        -1.0,
-        1.0,
-    );
+    const proj = camera.update(dt);
 
     if (state.sprite_count > 0) {
         sg.writeBufferTransient(.{
@@ -231,7 +215,7 @@ fn worker(shared: *Shared, io: std.Io) void {
     io.sleep(.fromSeconds(10), .awake) catch {};
 
     // heavy computation, no sokol/GL calls in here
-    shared.result.store(1, .release);
+    shared.result.store(128, .release);
     shared.done.store(true, .release);
 }
 
@@ -282,13 +266,12 @@ fn fetchCallback(response: [*c]const sfetch.Response) callconv(.c) void {
 
 pub fn main(proc_init: std.process.Init) void {
     const io = proc_init.io;
-    _ = io;
 
-    // const t = std.Thread.spawn(.{}, worker, .{ &state.shared, io }) catch |err| {
-    //     std.log.err("thread spawn failed: {}", .{err});
-    //     return;
-    // };
-    // t.detach();
+    const t = std.Thread.spawn(.{}, worker, .{ &state.shared, io }) catch |err| {
+        std.log.err("thread spawn failed: {}", .{err});
+        return;
+    };
+    t.detach();
 
     sapp.run(.{
         .init_cb = init,

@@ -2,6 +2,7 @@ const std = @import("std");
 const sokol = @import("sokol");
 const sapp = sokol.app;
 const Vec2 = @import("math.zig").Vec2;
+const Mat4 = @import("math.zig").Mat4;
 
 var cam: Vec2 = .{ .x = 0, .y = 0 };
 
@@ -49,7 +50,7 @@ fn releaseTouches(fling: bool) void {
     if (!coasting) pan_vel = .{ .x = 0, .y = 0 };
 }
 
-pub fn halfExtents() Vec2 {
+fn halfExtents() Vec2 {
     const half_h = world_height * 0.5 * @exp(zoom);
     const aspect = sapp.widthf() / sapp.heightf();
     return .{ .x = half_h * aspect, .y = half_h };
@@ -94,7 +95,7 @@ fn resetTouches() void {
     touch2 = null;
 }
 
-pub fn updateKeyboardPan(dt: f32) void {
+fn updateKeyboardPan(dt: f32) void {
     var dx: f32 = 0;
     var dy: f32 = 0;
     if (keys.d) dx += 1;
@@ -111,7 +112,7 @@ pub fn updateKeyboardPan(dt: f32) void {
     cam.y += dy / len * speed * dt;
 }
 
-pub fn predictionOffset(dt_raw: f32) Vec2 {
+fn predictionOffset(dt_raw: f32) Vec2 {
     const dt = @max(dt_raw, 0.001);
     const touching = drag != null or touch1 != null;
 
@@ -139,7 +140,7 @@ pub fn predictionOffset(dt_raw: f32) Vec2 {
     return last_pred;
 }
 
-pub fn updateMomentum(dt: f32) void {
+fn updateMomentum(dt: f32) void {
     // A new touch cancels the glide.
     if (drag != null or touch1 != null) {
         coasting = false;
@@ -231,6 +232,22 @@ pub export fn input(event: ?*const sapp.Event) void {
     }
 }
 
-pub fn getCamOffset() Vec2 {
-    return cam;
+pub fn update(dt: f32) Mat4 {
+    updateKeyboardPan(dt);
+    updateMomentum(dt);
+    const pred = predictionOffset(dt);
+
+    const h = halfExtents();
+    const cx = cam.x + pred.x; // render camera = true camera + prediction
+    const cy = cam.y + pred.y;
+    const proj = Mat4.ortho(
+        cx - h.x,
+        cx + h.x,
+        cy - h.y,
+        cy + h.y,
+        -1.0,
+        1.0,
+    );
+
+    return proj;
 }
