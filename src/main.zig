@@ -1,5 +1,7 @@
 const std = @import("std");
 const sokol = @import("sokol");
+const zigimg = @import("zigimg");
+
 const slog = sokol.log;
 const sfetch = sokol.fetch;
 const sg = sokol.gfx;
@@ -7,13 +9,13 @@ const sapp = sokol.app;
 const sglue = sokol.glue;
 const sdtx = sokol.debugtext;
 const sshape = sokol.shape;
-const zigimg = @import("zigimg");
 
-const vec3 = @import("math.zig").Vec3;
-const vec2 = @import("math.zig").Vec2;
-const mat4 = @import("math.zig").Mat4;
+const Vec3 = @import("math.zig").Vec3;
+const Vec2 = @import("math.zig").Vec2;
+const Mat4 = @import("math.zig").Mat4;
 const assert = @import("std").debug.assert;
 const shd = @import("shaders/quad.glsl.zig");
+const camera = @import("camera.zig");
 
 pub const panic = std.debug.FullPanic(wasmPanic);
 
@@ -180,6 +182,25 @@ export fn frame() void {
         sdtx.print("result: {d}\n", .{result});
     }
 
+    const dt: f32 = @floatCast(@min(sapp.frameDuration(), 0.1));
+    camera.updateKeyboardPan(dt);
+    camera.updateMomentum(dt);
+    const pred = camera.predictionOffset(dt);
+
+    const cam_offset = camera.getCamOffset();
+
+    const h = camera.halfExtents();
+    const cx = cam_offset.x + pred.x; // render camera = true camera + prediction
+    const cy = cam_offset.y + pred.y;
+    const proj = Mat4.ortho(
+        cx - h.x,
+        cx + h.x,
+        cy - h.y,
+        cy + h.y,
+        -1.0,
+        1.0,
+    );
+
     if (state.sprite_count > 0) {
         sg.writeBufferTransient(.{
             .src = .{
@@ -191,12 +212,6 @@ export fn frame() void {
         });
     }
 
-    const world_height: f32 = 10.0; // units visible vertically
-    const aspect = sapp.widthf() / sapp.heightf();
-    const half_h = world_height * 0.5;
-    const half_w = half_h * aspect;
-    const proj = mat4.ortho(-half_w, half_w, -half_h, half_h, -1.0, 1.0);
-
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     sg.applyPipeline(state.pip);
     sg.applyBindings(state.bind);
@@ -205,10 +220,6 @@ export fn frame() void {
     sdtx.draw();
     sg.endPass();
     sg.commit();
-}
-
-export fn input(event: ?*const sapp.Event) void {
-    _ = event;
 }
 
 export fn cleanup() void {
@@ -282,7 +293,7 @@ pub fn main(proc_init: std.process.Init) void {
     sapp.run(.{
         .init_cb = init,
         .frame_cb = frame,
-        .event_cb = input,
+        .event_cb = camera.input,
         .cleanup_cb = cleanup,
         .width = 1920,
         .height = 1080,
