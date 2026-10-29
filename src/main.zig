@@ -25,12 +25,17 @@ fn wasmPanic(msg: []const u8, ret_addr: ?usize) noreturn {
     @trap();
 }
 
+const Car = extern struct {
+    pos: [2]f32,
+    rotation: f32, // degrees
+};
+
 const SpriteInstance = extern struct {
     pos: [2]f32, // world position (or [3] if you want z-sorting)
     size: [2]f32, // world-space width/height
     uv_rect: [4]f32, // u0, v0, u1, v1 into the atlas
     color: [4]u8, // tint, normalized
-    rotation: f32 = 0.0, // optional
+    rotation: [4]f32 = .{ 1.0, 0.0, 0.0, 1.0 }, // rotation matrix, optional
 };
 
 const Shared = struct {
@@ -83,6 +88,7 @@ export fn init() void {
         .size = .{ 1.0, 2.0 },
         .uv_rect = .{ 0.0, 0.0, 1.0, 1.0 },
         .color = .{ 20, 63, 255, 255 },
+        .rotation = getRotMatrix(std.math.pi),
     };
     state.instances[1] = .{
         .pos = .{ 1.0, 0.0 },
@@ -134,7 +140,7 @@ export fn init() void {
             l.attrs[shd.ATTR_quad_inst_size] = .{ .format = .FLOAT2, .buffer_index = 1 };
             l.attrs[shd.ATTR_quad_inst_uv] = .{ .format = .FLOAT4, .buffer_index = 1 };
             l.attrs[shd.ATTR_quad_inst_color] = .{ .format = .UBYTE4N, .buffer_index = 1 };
-            l.attrs[shd.ATTR_quad_inst_rot] = .{ .format = .FLOAT, .buffer_index = 1 };
+            l.attrs[shd.ATTR_quad_inst_rot] = .{ .format = .FLOAT4, .buffer_index = 1 };
 
             l.buffers[1].step_func = .PER_INSTANCE;
             break :init l;
@@ -262,6 +268,15 @@ fn fetchCallback(response: [*c]const sfetch.Response) callconv(.c) void {
             .UNEXPECTED_EOF => std.log.err("Unexpected EOF", .{}),
         }
     }
+}
+
+fn getRotMatrix(rot_rads: f32) [4]f32 {
+    return .{
+        std.math.cos(rot_rads),
+        std.math.sin(rot_rads),
+        -std.math.sin(rot_rads),
+        std.math.cos(rot_rads),
+    };
 }
 
 pub fn main(proc_init: std.process.Init) void {

@@ -16,13 +16,14 @@ in vec2 inst_pos;
 in vec2 inst_size;
 in vec4 inst_uv;
 in vec4 inst_color;
-in vec2 inst_rot;
+in vec4 inst_rot;
 
 out vec2 uv;
 out vec4 color;
 
 void main() {
-    gl_Position = mvp * vec4(vert_pos * inst_size + inst_pos, 0.0, 1.0);
+    mat2 rot = mat2(inst_rot.xy, inst_rot.zw);
+    gl_Position = mvp * vec4(rot * (vert_pos * inst_size) + inst_pos, 0.0, 1.0);
 
     uv = mix(inst_uv.xy, inst_uv.zw, texcoord0);
     color = inst_color;
